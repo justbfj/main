@@ -7,13 +7,15 @@ const epsgCache: { [key: string]: string } = {};
 const commonProjections: { [key: string]: string } = {
   '3857': '+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +wktext +no_defs',
   '4326': '+proj=longlat +datum=WGS84 +no_defs',
+  '26914': '+proj=utm +zone=14 +datum=NAD83 +units=m +no_defs',
   '26915': '+proj=utm +zone=15 +datum=NAD83 +units=m +no_defs',
   '26916': '+proj=utm +zone=16 +datum=NAD83 +units=m +no_defs',
-  '26914': '+proj=utm +zone=14 +datum=NAD83 +units=m +no_defs',
+  '26917': '+proj=utm +zone=17 +datum=NAD83 +units=m +no_defs',
+  '32614': '+proj=utm +zone=14 +datum=WGS84 +units=m +no_defs',
   '32615': '+proj=utm +zone=15 +datum=WGS84 +units=m +no_defs',
   '32616': '+proj=utm +zone=16 +datum=WGS84 +units=m +no_defs',
-  '32614': '+proj=utm +zone=14 +datum=WGS84 +units=m +no_defs',
-  '6346': '+proj=utm +zone=15 +datum=NAD83 +units=m +no_defs +type=crs', // NAD83(2011) / UTM zone 15N
+  '32617': '+proj=utm +zone=17 +datum=WGS84 +units=m +no_defs',
+  '6346': '+proj=utm +zone=17 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs', // NAD83(2011) / UTM zone 17N
 };
 
 // Fetch EPSG definition from epsg.io
@@ -169,6 +171,58 @@ export const extractEPSGCode = (crs: any): string | null => {
     } else if (name.includes('urn:ogc:def:crs:EPSG::')) {
       return name.split('urn:ogc:def:crs:EPSG::')[1];
     }
+  }
+  
+  return null;
+};
+
+// Intelligent CRS detection based on coordinate analysis
+export const detectCRSFromCoordinates = (coordinates: number[][]): string | null => {
+  if (!coordinates || coordinates.length === 0) return null;
+  
+  const firstCoord = coordinates[0];
+  if (!firstCoord || firstCoord.length < 2) return null;
+  
+  const [x, y] = firstCoord;
+  
+  // If coordinates are in lat/lng range, it's likely WGS84
+  if (Math.abs(x) <= 180 && Math.abs(y) <= 90) {
+    return '4326';
+  }
+  
+  // Ontario, Canada UTM zones analysis
+  // UTM Zone 15N covers most of Ontario west
+  // UTM Zone 16N covers most of Ontario central
+  // UTM Zone 17N covers most of Ontario east
+  
+  // UTM Zone detection based on easting values and northing range
+  // UTM zones in North America typically have northings 4,000,000+ for northern areas
+  if (y >= 4000000 && y <= 6500000 && x >= 160000 && x <= 840000) {
+    
+    // UTM Zone 15N (EPSG:26915) - Western Ontario/Manitoba
+    // Central meridian: -93°, typically x values 200,000-800,000
+    if (x >= 200000 && x < 450000) {
+      return '26915';
+    }
+    
+    // UTM Zone 16N (EPSG:26916) - Central Ontario  
+    // Central meridian: -87°, typically x values 300,000-700,000
+    if (x >= 300000 && x < 550000) {
+      return '26916';
+    }
+    
+    // UTM Zone 17N (EPSG:26917 or 6346) - Eastern Ontario/Eastern US
+    // Central meridian: -81°, typically x values 400,000-800,000
+    if (x >= 400000 && x <= 800000) {
+      // Could be either NAD83 (26917) or NAD83(2011) (6346)
+      // Return 6346 as it's more modern for this coordinate range
+      return '6346';
+    }
+  }
+  
+  // Web Mercator (EPSG:3857)
+  if (Math.abs(x) > 180 && Math.abs(x) <= 20037508.34 && Math.abs(y) <= 20037508.34) {
+    return '3857';
   }
   
   return null;

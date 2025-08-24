@@ -16,7 +16,7 @@ const MainContent: React.FC = () => {
         height: 'calc(100vh - 64px)',
         marginTop: '64px',
         transition: 'margin-left 0.3s ease-in-out',
-        marginLeft: sidebarOpen ? '280px' : 0,
+        marginLeft: sidebarOpen ? 0 : 0,
       }}
     >
       <Box sx={{ 

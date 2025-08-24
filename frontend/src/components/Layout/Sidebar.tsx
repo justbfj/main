@@ -82,19 +82,23 @@ const Sidebar: React.FC = () => {
 
   return (
     <Drawer
-      variant="persistent"
+      variant="permanent"
       anchor="left"
       open={sidebarOpen}
       sx={{
         width: sidebarOpen ? DRAWER_WIDTH : 0,
         flexShrink: 0,
+        whiteSpace: 'nowrap',
+        boxSizing: 'border-box',
+        transition: 'width 0.3s ease-in-out',
         '& .MuiDrawer-paper': {
-          width: DRAWER_WIDTH,
+          width: sidebarOpen ? DRAWER_WIDTH : 0,
           boxSizing: 'border-box',
           marginTop: '64px',
           height: 'calc(100vh - 64px)',
+          overflow: 'hidden',
+          transition: 'width 0.3s ease-in-out',
         },
-        transition: 'width 0.3s ease-in-out',
       }}
     >
       <Box sx={{ overflow: 'auto', py: 1 }}>

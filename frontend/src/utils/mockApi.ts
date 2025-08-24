@@ -1,5 +1,5 @@
 import { Project, Layer, FlightPlan } from '../store/api/projectApi';
-import { transformGeometry, extractEPSGCode } from './coordinateTransform';
+import { transformGeometry, extractEPSGCode, detectCRSFromCoordinates } from './coordinateTransform';
 
 // Mock localStorage-based data store for development
 const STORAGE_KEY = 'bfgeo_projects';
@@ -80,7 +80,7 @@ export const uploadMockGeospatialData = async (projectId: string, file: File): P
     });
 
     // Process the file content
-    let geoData: GeoJSON.FeatureCollection;
+    let geoData: any; // Using any to allow CRS property which isn't in standard GeoJSON types
     
     // Parse the file based on its type
     if (file.name.toLowerCase().endsWith('.geojson') || file.name.toLowerCase().endsWith('.json')) {
@@ -121,25 +121,63 @@ export const uploadMockGeospatialData = async (projectId: string, file: File): P
           console.log('Coordinate transformation completed');
         }
       } else {
-        // No CRS defined, check if coordinates seem projected
+        // No CRS defined, try to detect it intelligently
         if (geoData.features && geoData.features.length > 0) {
           const firstFeature = geoData.features[0];
           if (firstFeature.geometry && firstFeature.geometry.coordinates) {
             const coords = firstFeature.geometry.coordinates;
-            let firstCoordPair: number[] = [];
+            let coordinatesArray: number[][] = [];
             
-            // Extract first coordinate pair based on geometry type
-            if (firstFeature.geometry.type === 'MultiLineString' && coords[0] && coords[0][0]) {
-              firstCoordPair = coords[0][0];
-            } else if (firstFeature.geometry.type === 'LineString' && coords[0]) {
-              firstCoordPair = coords[0];
+            // Extract coordinate array based on geometry type
+            if (firstFeature.geometry.type === 'MultiLineString' && coords[0] && coords[0].length > 0) {
+              coordinatesArray = coords[0];
+            } else if (firstFeature.geometry.type === 'LineString') {
+              coordinatesArray = coords;
             } else if (firstFeature.geometry.type === 'Point') {
-              firstCoordPair = coords;
+              coordinatesArray = [coords];
+            } else if (firstFeature.geometry.type === 'Polygon' && coords[0]) {
+              coordinatesArray = coords[0];
             }
             
-            // If coordinates are very large (> 180), warn about unknown CRS
-            if (firstCoordPair.length >= 2 && (Math.abs(firstCoordPair[0]) > 180 || Math.abs(firstCoordPair[1]) > 180)) {
-              console.warn('Coordinates appear to be projected but no CRS specified. Data may not display correctly.');
+            // Try to detect the CRS
+            const detectedEPSG = detectCRSFromCoordinates(coordinatesArray);
+            
+            if (detectedEPSG && detectedEPSG !== '4326') {
+              console.log(`No CRS specified, but detected likely projection: EPSG:${detectedEPSG}`);
+              console.log(`Converting coordinates from EPSG:${detectedEPSG} to WGS84...`);
+              
+              // Transform all features using the detected CRS
+              const transformedFeatures = await Promise.all(
+                geoData.features.map(async (feature: any) => {
+                  if (feature.geometry && feature.geometry.coordinates) {
+                    feature.geometry.coordinates = await transformGeometry(
+                      feature.geometry.coordinates, 
+                      feature.geometry.type, 
+                      detectedEPSG
+                    );
+                  }
+                  return feature;
+                })
+              );
+              
+              geoData.features = transformedFeatures;
+              
+              // Add the detected CRS information
+              geoData.crs = {
+                type: 'name',
+                properties: {
+                  name: 'urn:ogc:def:crs:EPSG::4326'
+                }
+              };
+              
+              console.log('Automatic coordinate transformation completed');
+            } else if (coordinatesArray.length > 0 && coordinatesArray[0].length >= 2) {
+              const [x, y] = coordinatesArray[0];
+              // If coordinates are very large (> 180), warn about unknown CRS
+              if (Math.abs(x) > 180 || Math.abs(y) > 180) {
+                console.warn('Coordinates appear to be projected but CRS could not be detected. Data may not display correctly.');
+                console.warn(`Sample coordinates: [${x}, ${y}]`);
+              }
             }
           }
         }
